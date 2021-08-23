@@ -29,6 +29,12 @@ NextFrame
 ; 37 lines of underscan
 	TIMER_SETUP 37
         TIMER_WAIT
+        lda #$a0
+        sta COLUPF
+        lda %10101010
+        sta PF0
+        sta PF1
+	sta PF2       		
 ; 192 lines of frame
 	TIMER_SETUP 192
         TIMER_WAIT
