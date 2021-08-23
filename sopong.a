@@ -10,7 +10,7 @@
         seg.u Variables
 	org $80
 
-Temp		.byte
+dotcount .byte
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Code segment
@@ -20,6 +20,11 @@ Temp		.byte
 
 Start
 	CLEAN_START
+	lda #$0a
+	sta COLUPF
+        lda #1
+        sta CTRLPF
+	
 
 NextFrame
         lsr SWCHB	; test Game Reset switch
@@ -29,16 +34,99 @@ NextFrame
 ; 37 lines of underscan
 	TIMER_SETUP 37
         TIMER_WAIT
-        lda #$a0
-        sta COLUPF
-        lda %10101010
+        ldx #0
+        stx VBLANK
+        lda #$ff
         sta PF0
         sta PF1
 	sta PF2       		
-; 192 lines of frame
-	TIMER_SETUP 192
-        TIMER_WAIT
+        lda #%10000000
+        ldy #7
+tline        
+        sta WSYNC
+        dey
+        bne tline
+        ldy #11
+        sty dotcount
+tdots
+
+        ldy #8
+tdot1
+	sta WSYNC
+	stx PF0
+	stx PF1
+	sta PF2
+        nop 
+        nop 
+        nop 
+        nop
+        nop 
+        nop 
+        nop 
+        nop
+        nop 
+        nop 
+        nop 
+        nop
+        nop 
+        nop 
+        nop 
+        nop
+        nop 
+        nop 
+	stx PF2
+	dey 
+        bne tdot1
+
+        ldy #8
+
+tdot2
+	sta WSYNC
+	stx PF0
+	stx PF1
+	stx PF2
+        nop 
+        nop 
+        nop 
+        nop
+        nop 
+        nop 
+        nop 
+        nop
+        nop 
+        nop 
+        nop 
+        nop
+        nop 
+        nop 
+        nop 
+        nop
+        nop 
+        nop 
+	sta PF2
+	dey 
+        bne tdot2
+
+	dec dotcount
+        ldy dotcount
+       	bne tdots 
+            
+ 	sta WSYNC            
+            
+        lda #$ff
+        sta PF0
+        sta PF1
+	sta PF2       		
+        lda #%10000000
+        ldy #7
+bline        
+        sta WSYNC
+        dey
+        bne bline
+
 ; 29 lines of overscan
+        lda #2
+        sta VBLANK
 	TIMER_SETUP 29
         TIMER_WAIT
 ; total = 262 lines, go to next frame
