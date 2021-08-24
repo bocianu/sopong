@@ -13,6 +13,10 @@ ballX		.byte
 ballY		.byte
 ballDx		.byte
 ballDy		.byte
+ballSx		.byte
+ballSy		.byte
+ballDirX	.byte
+ballDirY	.byte
 p1y		.byte
 p2y		.byte
 sball		.byte
@@ -40,13 +44,18 @@ Start
         lda #90
         sta ballX
         sta ballY
-	lda #80
+	lda #142
         sta p1y
+        lda #0
         sta p2y
-	lda #1
         sta ballDx
-        lda #-1
         sta ballDy
+        sta ballDirX
+        sta ballDirY
+	lda #10
+        sta ballSx
+	lda #20
+        sta ballSy
 
 NextFrame
         lsr SWCHB	; test Game Reset switch
@@ -86,56 +95,56 @@ NextFrame
         stx PF1
         stx PF2
         
-        
-        lda #<.pldata
-        sta pl1p
         lda #>.pldata
-        sta pl1p+1
-
+        sta pl1p + 1
         clc
-	lda pl1p
+	lda #<.pldata
         adc p1y
 	sta pl1p
         bcc carry1
-        inc pl1p+1
+        inc pl1p + 1
 carry1        
+
+        lda #>.pldata
+        sta pl2p + 1
+        clc
+	lda #<.pldata
+        adc p2y
+	sta pl2p
+        bcc carry2
+        inc pl2p + 1
+carry2        
+
         
         ; 192 lines of frame
-	ldx #176	; X = 192 scanlines
+	ldy #176	; X = 192 scanlines
         
 LVScan
-	stx sp1
-	ldy #1
-        sty sball
-        iny
-        
-	txa
+	ldx #1
+	tya
         sec		
         sbc ballY	
         cmp #8         
         bcs InSprite	
-        sty sball	
+	inx	
 InSprite
+        stx sball	
     	
-	;txa		
-        ;sec		
-        ;sbc p2y	
-        ;cmp #32         
-        ;bcs InPl2	
-        ;sty sp2	
-InPl2 
-	lda (pl1p),x
+	lda (pl2p),y
+        sta sp2
+	lda (pl1p),y
         sta sp1		
-        
+
  	lda sball
-        ldy sp1
+        ldx sp1
  	sta WSYNC
 
         sta ENABL
-        sty ENAM0
-;        sta ENAM1
+        stx ENAM0
+	lda sp2       
+	sta ENAM1
 
-	txa
+	tya
         and #4
         beq l2
         lda #128
@@ -144,7 +153,7 @@ l2
 	  
 pfskip
         
-        dex		
+        dey		
         bne LVScan	
 	sta WSYNC
         
@@ -161,45 +170,94 @@ pfskip
         sta VBLANK
 	TIMER_SETUP 29
 
-	lda ballX
-        clc 
-        adc ballDx
-        sta ballX
-        cmp #16
-        beq bounceBallX
-        cmp #172
-        beq bounceBallX
-        bne skipBounceX
-bounceBallX        
-        lda ballDx
-        eor #$ff
+;; ball movement
+
         clc
-        adc #1
+	lda ballDx
+        adc ballSx
+        tax 
+        and #15
         sta ballDx
-
-skipBounceX
-
-	lda ballY
-        clc 
-        adc ballDy
-        sta ballY
-        cmp #3
-        beq bounceBallY
-        cmp #170
-        beq bounceBallY
-        bne skipBounce
-bounceBallY        
-        lda ballDy
-        eor #$ff
-        clc
-        adc #1
-        sta ballDy
-
+        txa
+        lsr
+        lsr
+        lsr
+        lsr
+        tax
+        lda ballDirX
+        beq singSkip 
+        txa
+	jsr signChange
+        tax
         
+singSkip        
+        clc 
+        txa
+        adc ballX
+        sta ballX
+        sec
+        sbc #18
+        bcs skipBounceLeft
+        lda #0
+        sta ballDirX
+skipBounceLeft        
+        lda #170
+        clc
+        sbc ballX
+        bcs SkipBounceRight
+        lda #1
+        sta ballDirX
+SkipBounceRight
+
+        clc
+	lda ballDy
+        adc ballSy
+        tax 
+        and #15
+        sta ballDy
+        txa
+        lsr
+        lsr
+        lsr
+        lsr
+        tax
+        lda ballDirY
+        beq singSkip2 
+        txa
+	jsr signChange
+        tax
+        
+singSkip2        
+        clc 
+        txa
+        adc ballY
+        sta ballY
+        sec
+        sbc #3
+        bcs skipBounceTop
+        lda #0
+        sta ballDirY
+skipBounceTop        
+        lda #171
+        clc
+        sbc ballY
+        bcs SkipBounceBottom
+        lda #1
+        sta ballDirY
+SkipBounceBottom
+
+                
+
 skipBounce        
         TIMER_WAIT
 ; total = 262 lines, go to next frame
         jmp NextFrame
+
+signChange
+        eor #$ff
+        clc
+        adc #1
+	rts	
 
 
 ; SetHorizPos routine
@@ -239,14 +297,13 @@ DivideLoop
 	hex 0000000000000000
 	hex 0000000000000000
 	hex 0000000000000000
-	hex 0000000000000000
-        
+	hex 000000000000000000
+	
         hex 0202020202020202
 	hex 0202020202020202
 	hex 0202020202020202
 	hex 0202020202020202
 	
-
         hex 0000000000000000
 	hex 0000000000000000
 	hex 0000000000000000
@@ -264,7 +321,8 @@ DivideLoop
 	hex 0000000000000000
 	hex 0000000000000000
 	hex 0000000000000000
-	hex 0000000000000000
+	hex 000000000000000000
+
                                 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
