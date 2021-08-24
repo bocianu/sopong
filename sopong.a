@@ -18,6 +18,8 @@ p2y		.byte
 sball		.byte
 sp1		.byte
 sp2		.byte
+pl1p		.word
+pl2p		.word
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Code segment
 
@@ -38,7 +40,8 @@ Start
         lda #90
         sta ballX
         sta ballY
-	sta p1y
+	lda #80
+        sta p1y
         sta p2y
 	lda #1
         sta ballDx
@@ -57,21 +60,20 @@ NextFrame
         sta PF1
         sta PF0
     	
-        lda ballX	; get X coordinate
-        ldx #4		; player 0
-        jsr SetHorizPos	; set coarse offset
+        lda ballX	
+        ldx #4		
+        jsr SetHorizPos	
         
         lda #20
-        ldx #2		; player 0
-        jsr SetHorizPos	; set coarse offset
+        ldx #2		
+        jsr SetHorizPos	
 
         lda #168
-        ldx #3		; player 0
-        jsr SetHorizPos	; set coarse offset
+        ldx #3		
+        jsr SetHorizPos	
 
-
-	sta WSYNC	; sync w/ scanline
-        sta HMOVE	; apply fine offsets 
+	sta WSYNC	
+        sta HMOVE	
         
         TIMER_WAIT
         	
@@ -84,39 +86,47 @@ NextFrame
         stx PF1
         stx PF2
         
+        
+        lda #<.pldata
+        sta pl1p
+        lda #>.pldata
+        sta pl1p+1
 
+        clc
+	lda pl1p
+        adc p1y
+	sta pl1p
+        bcc carry1
+        inc pl1p+1
+carry1        
+        
         ; 192 lines of frame
 	ldx #176	; X = 192 scanlines
+        
 LVScan
+	stx sp1
 	ldy #1
         sty sball
-        sty sp1
-        sty sp2
         iny
         
 	txa
-        sec		; set carry for subtract
-        sbc ballY	; local coordinate
-        cmp #8          ; in sprite?
-        bcs InSprite	; yes, skip over next
-        sty sball	; not in sprite, load 0
+        sec		
+        sbc ballY	
+        cmp #8         
+        bcs InSprite	
+        sty sball	
 InSprite
     	
-	;txa		; X -> A
-        ;sec		; set carry for subtract
-        ;sbc p2y	; local coordinate
-        ;cmp #32         ; in sprite?
-        ;bcs InPl2	; yes, skip over next
-        ;sty sp2	; not in sprite, load 0
-InPl2
-
-	txa		; X -> A
-        sec		; set carry for subtract
-        sbc p1y		; local coordinate
-        cmp #32         ; in sprite?
-        bcs InPl1	; yes, skip over next
-        sty sp1		; not in sprite, load 0
-InPl1
+	;txa		
+        ;sec		
+        ;sbc p2y	
+        ;cmp #32         
+        ;bcs InPl2	
+        ;sty sp2	
+InPl2 
+	lda (pl1p),x
+        sta sp1		
+        
  	lda sball
         ldy sp1
  	sta WSYNC
@@ -134,8 +144,8 @@ l2
 	  
 pfskip
         
-        dex		; decrement X
-        bne LVScan	; repeat until 192 lines
+        dex		
+        bne LVScan	
 	sta WSYNC
         
 	lda #$ff
@@ -210,7 +220,52 @@ DivideLoop
 	sta HMP0,x	; set fine offset
 	rts		; return to caller
 
+.pldata	        
+
+        hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
         
+        hex 0202020202020202
+	hex 0202020202020202
+	hex 0202020202020202
+	hex 0202020202020202
+	
+
+        hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+	hex 0000000000000000
+                                
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Epilogue
