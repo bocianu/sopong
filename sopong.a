@@ -24,6 +24,11 @@ sp1		.byte
 sp2		.byte
 pl1p		.word
 pl2p		.word
+score0		.byte
+score1		.byte
+random		.byte
+
+RAND_EOR_8 = $A9
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Code segment
 
@@ -44,15 +49,14 @@ Start
         lda #90
         sta ballX
         sta ballY
-	lda #142
+	lda #72
         sta p1y
-        lda #0
         sta p2y
         sta ballDx
         sta ballDy
         sta ballDirX
         sta ballDirY
-	lda #10
+	lda #20
         sta ballSx
 	lda #20
         sta ballSy
@@ -64,10 +68,13 @@ NextFrame
 	VERTICAL_SYNC
 ; 37 lines of underscan
 	TIMER_SETUP 37
+        
+; set playfield         
         lda #$ff
         sta PF2
         sta PF1
         sta PF0
+        sta CXCLR
     	
         lda ballX	
         ldx #4		
@@ -81,6 +88,47 @@ NextFrame
         ldx #3		
         jsr SetHorizPos	
 
+
+	ldx p1y
+	lda #%00010000	;Up?
+	bit SWCHA
+	bne SkipMoveUp1
+        cpx #0
+        beq SkipMoveUp1
+        dex
+        dex
+SkipMoveUp1
+	lda #%00100000	;Down?
+	bit SWCHA 
+	bne SkipMoveDown1
+        cpx #142
+        bcs SkipMoveDown1
+        inx
+        inx
+SkipMoveDown1
+	stx p1y
+	
+	ldx p2y
+	lda #%00000001	;Up?
+	bit SWCHA
+	bne SkipMoveUp2
+        cpx #0
+        beq SkipMoveUp2
+        dex
+        dex
+SkipMoveUp2
+	lda #%00000010	;Down?
+	bit SWCHA 
+	bne SkipMoveDown2
+        cpx #142
+        bcs SkipMoveDown2
+        inx
+        inx
+SkipMoveDown2
+	stx p2y        
+        
+	jsr rand
+	
 	sta WSYNC	
         sta HMOVE	
         
@@ -197,19 +245,20 @@ singSkip
         sta ballX
         sec
         sbc #18
-        bcs skipBounceLeft
+        bcs skipOutLeft
         lda #0
-        sta ballDirX
-skipBounceLeft        
-        lda #170
+        jsr playerAFails
+skipOutLeft        
+        lda #172
         clc
         sbc ballX
-        bcs SkipBounceRight
+        bcs SkipOutRight
         lda #1
-        sta ballDirX
-SkipBounceRight
+        jsr playerAFails
+SkipOutRight
 
-        clc
+
+clc
 	lda ballDy
         adc ballSy
         tax 
@@ -226,9 +275,10 @@ SkipBounceRight
         txa
 	jsr signChange
         tax
-        
 singSkip2        
-        clc 
+
+
+	clc 
         txa
         adc ballY
         sta ballY
@@ -246,7 +296,55 @@ skipBounceTop
         sta ballDirY
 SkipBounceBottom
 
-                
+;; check collision
+
+	lda #%01000000	
+	and CXM0FB
+	beq notColiddedL
+	lda #0
+        sta ballDirX
+
+notColiddedL
+
+	lda #%01000000	
+	and CXM1FB
+	beq notColiddedR
+	lda #1
+        sta ballDirX
+notColiddedR
+
+	jmp skipBounce
+
+playerAFails
+	eor #1
+        sta ballDirX
+        beq p1fails
+;p0         
+	ldx #160
+        lda p2y
+   	inc score1   
+	bcc skipp1        
+	   
+p1fails
+;p1
+	ldx #28
+	lda p1y
+	inc score0
+
+skipp1
+        jsr signChange
+        adc #156
+        sta ballY
+        stx ballX
+        lda random
+        and #15
+        sta ballSy
+	lda random 
+        rol
+        rol
+        and #1
+        sta ballDirY
+
 
 skipBounce        
         TIMER_WAIT
@@ -277,6 +375,18 @@ DivideLoop
 	asl
 	sta HMP0,x	; set fine offset
 	rts		; return to caller
+
+
+rand    lda random
+	beq xseed
+	lsr
+        bcc srand
+xseed   
+	eor #RAND_EOR_8
+srand
+	sta random
+	rts
+  
 
 .pldata	        
 
