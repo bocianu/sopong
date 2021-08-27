@@ -9,26 +9,31 @@
         seg.u Variables
 	org $80
 
-ballX		.byte
+ballX		.byte ; ball position
 ballY		.byte
-ballDx		.byte
+ballDx		.byte ; ball movement deltas
 ballDy		.byte
-ballSx		.byte
-ballSy		.byte
-ballDirX	.byte
-ballDirY	.byte
-p1y		.byte
+ballSx		.byte ; ball horizontal speed
+ballSy		.byte ; ball vertical speed
+ballDirX	.byte ; ball horizontal direction  0 left / 1 right
+ballDirY	.byte ; ball vertical direction
+p1y		.byte ; paddles vert pos
 p2y		.byte
-sball		.byte
-sp1		.byte
-sp2		.byte
-pl1p		.word
+sball		.byte ; ball shadow register
+sp1		.byte ; paddle shadow registers
+sp2		.byte 
+pl1p		.word ; pointers to player graphics data tables
 pl2p		.word
-score0		.byte
+score0		.byte ; scores
 score1		.byte
-random		.byte
+random		.byte ; pseudo random value tossed every frame
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Consts
 
 RAND_EOR_8 = $A9
+
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Code segment
 
@@ -37,6 +42,8 @@ RAND_EOR_8 = $A9
 
 Start
 	CLEAN_START
+
+; initialize variables        
 	lda #$0a
 	sta COLUPF
         sta COLUP0
@@ -60,6 +67,8 @@ Start
         sta ballSx
 	lda #20
         sta ballSy
+        
+; start of frame
 
 NextFrame
         lsr SWCHB	; test Game Reset switch
@@ -69,79 +78,71 @@ NextFrame
 ; 37 lines of underscan
 	TIMER_SETUP 37
         
-; set playfield         
+; set playfield top line
+        
         lda #$ff
         sta PF2
         sta PF1
         sta PF0
         sta CXCLR
-    	
+
+; set ball and players positions
+
         lda ballX	
-        ldx #4		
+        ldx #4		; ball
         jsr SetHorizPos	
         
         lda #20
-        ldx #2		
+        ldx #2		; missile 0
         jsr SetHorizPos	
 
         lda #168
-        ldx #3		
+        ldx #3		; missile 1
         jsr SetHorizPos	
 
+; check player 1 joy
 
 	ldx p1y
-	lda #%00010000	;Up?
+	lda #%00010000	; Up?
 	bit SWCHA
 	bne SkipMoveUp1
-        cpx #0
+        cpx #0		; check limit
         beq SkipMoveUp1
         dex
         dex
 SkipMoveUp1
-	lda #%00100000	;Down?
+	lda #%00100000	; Down?
 	bit SWCHA 
 	bne SkipMoveDown1
-        cpx #142
+        cpx #142	; check limit
         bcs SkipMoveDown1
         inx
         inx
 SkipMoveDown1
 	stx p1y
-	
+
+; check player 2 joy
+
 	ldx p2y
-	lda #%00000001	;Up?
+	lda #%00000001	; Up?
 	bit SWCHA
 	bne SkipMoveUp2
-        cpx #0
+        cpx #0		; check limit
         beq SkipMoveUp2
         dex
         dex
 SkipMoveUp2
-	lda #%00000010	;Down?
+	lda #%00000010	; Down?
 	bit SWCHA 
 	bne SkipMoveDown2
-        cpx #142
+        cpx #142	; check limit
         bcs SkipMoveDown2
         inx
         inx
 SkipMoveDown2
 	stx p2y        
-        
-	jsr rand
-	
-	sta WSYNC	
-        sta HMOVE	
-        
-        TIMER_WAIT
-        	
-        ldx #0
-	stx VBLANK
 
-	SKIP_SCANLINES 7
-        
-        stx PF0
-        stx PF1
-        stx PF2
+; calculate player1 top offset pointer
         
         lda #>.pldata
         sta pl1p + 1
@@ -153,7 +154,9 @@ SkipMoveDown2
         inc pl1p + 1
 carry1        
 
-        lda #>.pldata
+; calculate player2 top offset pointer
+
+	lda #>.pldata
         sta pl2p + 1
         clc
 	lda #<.pldata
@@ -163,12 +166,36 @@ carry1
         inc pl2p + 1
 carry2        
 
+; randomize 
         
-        ; 192 lines of frame
-	ldy #176	; X = 192 scanlines
+	jsr rand
+	
+; and set sprites position        
+        
+	sta WSYNC	
+        sta HMOVE	
+        
+        TIMER_WAIT
+        	
+        ldx #0
+	stx VBLANK
+
+	SKIP_SCANLINES 7
+        
+; clear playfield registers
+
+	stx PF0
+        stx PF1
+        stx PF2
+        
+; 176 lines of playfield -------------- LOOP START
+
+	ldy #176	
         
 LVScan
-	ldx #1
+	
+; draw ball if needed        
+        ldx #1
 	tya
         sec		
         sbc ballY	
@@ -178,47 +205,52 @@ LVScan
 InSprite
         stx sball	
     	
+; draw paddle using bytes offsets
+	
 	lda (pl2p),y
         sta sp2
 	lda (pl1p),y
         sta sp1		
 
- 	lda sball
-        ldx sp1
+; fill sprite registers
+	ldx sball
  	sta WSYNC
-
-        sta ENABL
-        stx ENAM0
+        stx ENABL
+        sta ENAM0
 	lda sp2       
 	sta ENAM1
 
+; draw playfield v-line 
 	tya
         and #4
-        beq l2
+        beq skipFill
         lda #128
-l2        
+skipFill        
 	sta PF2               
-	  
-pfskip
-        
+       
         dey		
         bne LVScan	
-	sta WSYNC
+        
+; 176 lines of playfield -------------- LOOP END        
+        
+; draw bottom line       
         
 	lda #$ff
+	sta WSYNC
         sta PF0
         sta PF1
         sta PF2
 
 	SKIP_SCANLINES 7
 
-
 ; 29 lines of overscan
-        lda #2
+
+	lda #2
         sta VBLANK
 	TIMER_SETUP 29
 
-;; ball movement
+
+; count horizontal ball movement
 
         clc
 	lda ballDx
@@ -243,22 +275,26 @@ singSkip
         txa
         adc ballX
         sta ballX
-        sec
+        
+; check if ball leaves screen        
+
+	sec
         sbc #18
         bcs skipOutLeft
         lda #0
-        jsr playerAFails
+        jmp playerAFails
 skipOutLeft        
         lda #172
         clc
         sbc ballX
         bcs SkipOutRight
         lda #1
-        jsr playerAFails
+        jmp playerAFails
 SkipOutRight
 
+; count vertical ball movement
 
-clc
+	clc
 	lda ballDy
         adc ballSy
         tax 
@@ -276,13 +312,14 @@ clc
 	jsr signChange
         tax
 singSkip2        
-
-
 	clc 
         txa
         adc ballY
         sta ballY
-        sec
+
+; check if ball bounces
+
+	sec
         sbc #3
         bcs skipBounceTop
         lda #0
@@ -296,7 +333,7 @@ skipBounceTop
         sta ballDirY
 SkipBounceBottom
 
-;; check collision
+; check collision of ball and player Left
 
 	lda #%01000000	
 	and CXM0FB
@@ -306,6 +343,8 @@ SkipBounceBottom
 
 notColiddedL
 
+; check collision of ball and player Right
+
 	lda #%01000000	
 	and CXM1FB
 	beq notColiddedR
@@ -313,13 +352,14 @@ notColiddedL
         sta ballDirX
 notColiddedR
 
-	jmp skipBounce
+	jmp EndOfFrame
 
+; someone failed 
 playerAFails
 	eor #1
         sta ballDirX
         beq p1fails
-;p0         
+;p0 fails        
 	ldx #160
         lda p2y
    	inc score1   
@@ -332,7 +372,8 @@ p1fails
 	inc score0
 
 skipp1
-        jsr signChange
+; restart ball position (winner Y pos in accu)
+	jsr signChange
         adc #156
         sta ballY
         stx ballX
@@ -345,18 +386,20 @@ skipp1
         and #1
         sta ballDirY
 
+EndOfFrame
 
-skipBounce        
-        TIMER_WAIT
+	TIMER_WAIT
 ; total = 262 lines, go to next frame
         jmp NextFrame
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; SUBROUTINES
 
 signChange
         eor #$ff
         clc
         adc #1
 	rts	
-
 
 ; SetHorizPos routine
 ; A = X coordinate
@@ -386,7 +429,9 @@ xseed
 srand
 	sta random
 	rts
-  
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; DATA
 
 .pldata	        
 
@@ -432,7 +477,6 @@ srand
 	hex 0000000000000000
 	hex 0000000000000000
 	hex 000000000000000000
-
                                 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
