@@ -15,8 +15,8 @@ ballDx		.byte ; ball movement deltas
 ballDy		.byte
 ballSx		.byte ; ball horizontal speed
 ballSy		.byte ; ball vertical speed
-ballDirX	.byte ; ball horizontal direction  0 left / 1 right
-ballDirY	.byte ; ball vertical direction
+ballDirX	.byte ; ball horizontal direction  0 right / 1 left
+ballDirY	.byte ; ball vertical direction	   0 down / 1 up
 p1y		.byte ; paddles vert pos
 p2y		.byte
 sball		.byte ; ball shadow register
@@ -27,6 +27,10 @@ pl2p		.word
 score0		.byte ; scores
 score1		.byte
 random		.byte ; pseudo random value tossed every frame
+bounceCount	.byte
+ballStop 	.byte
+v0		.byte
+v1		.byte
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Consts
@@ -67,7 +71,15 @@ Start
         sta ballSx
 	lda #20
         sta ballSy
-        
+        lda #0
+        sta bounceCount
+	sta ballStop
+        sta AUDV0
+        sta AUDV1
+        lda #5
+        sta AUDC0
+        lda #7
+        sta AUDC1
 ; start of frame
 
 NextFrame
@@ -167,10 +179,101 @@ carry1
 carry2        
 
 ; randomize 
-        
+
 	jsr rand
-	
-; and set sprites position        
+
+	lda ballStop
+        bne SkipOutRight
+
+; count vertical ball movement
+
+	clc
+	lda ballDy
+        adc ballSy
+        tax 
+        and #15
+        sta ballDy
+        txa
+        lsr
+        lsr
+        lsr
+        lsr
+        tax
+        lda ballDirY
+        beq singSkip2 
+        txa
+	jsr signChange
+        tax
+singSkip2        
+	clc 
+        txa
+        adc ballY
+        sta ballY
+
+; check if ball bounces
+
+	sec
+        sbc #3
+        bcs skipBounceTop
+        lda #0
+        sta ballDirY
+	jsr bounceSound
+skipBounceTop        
+        lda #171
+        clc
+        sbc ballY
+        bcs SkipBounceBottom
+        lda #1
+        sta ballDirY
+	jsr bounceSound
+SkipBounceBottom
+
+
+; count horizontal ball movement
+
+        clc
+	lda ballDx
+        adc ballSx
+        tax 
+        and #15
+        sta ballDx
+        txa
+        lsr
+        lsr
+        lsr
+        lsr
+        tax
+        lda ballDirX
+        beq singSkip 
+        txa
+	jsr signChange
+        tax
+        
+singSkip        
+        clc 
+        txa
+        adc ballX
+        sta ballX
+        
+; check if ball leaves screen        
+
+	sec
+        sbc #18
+        bcs skipOutLeft
+        lda #0
+        jsr playerAFails
+        jmp SkipOutRight
+skipOutLeft        
+        lda #172
+        clc
+        sbc ballX
+        bcs SkipOutRight
+        lda #1
+        jsr playerAFails
+SkipOutRight
+
+        
+; and set sprites horizontal positions    
         
 	sta WSYNC	
         sta HMOVE	
@@ -196,6 +299,9 @@ LVScan
 	
 ; draw ball if needed        
         ldx #1
+        
+        lda ballStop
+        bne InSprite
 	tya
         sec		
         sbc ballY	
@@ -240,7 +346,6 @@ skipFill
         sta PF0
         sta PF1
         sta PF2
-
 	SKIP_SCANLINES 7
 
 ; 29 lines of overscan
@@ -249,110 +354,83 @@ skipFill
         sta VBLANK
 	TIMER_SETUP 29
 
+; if sound plays, decrease...
+	lda v0
+        sta AUDV0
+        beq skipV0down
+        dec v0
+skipV0down
 
-; count horizontal ball movement
+	lda v1
+        sta AUDV1
+        beq skipV1down
+        dec v1
+skipV1down
 
-        clc
-	lda ballDx
-        adc ballSx
-        tax 
-        and #15
-        sta ballDx
-        txa
-        lsr
-        lsr
-        lsr
-        lsr
-        tax
-        lda ballDirX
-        beq singSkip 
-        txa
-	jsr signChange
-        tax
-        
-singSkip        
-        clc 
-        txa
-        adc ballX
-        sta ballX
-        
-; check if ball leaves screen        
-
-	sec
-        sbc #18
-        bcs skipOutLeft
-        lda #0
-        jmp playerAFails
-skipOutLeft        
-        lda #172
-        clc
-        sbc ballX
-        bcs SkipOutRight
-        lda #1
-        jmp playerAFails
-SkipOutRight
-
-; count vertical ball movement
-
-	clc
-	lda ballDy
-        adc ballSy
-        tax 
-        and #15
-        sta ballDy
-        txa
-        lsr
-        lsr
-        lsr
-        lsr
-        tax
-        lda ballDirY
-        beq singSkip2 
-        txa
-	jsr signChange
-        tax
-singSkip2        
-	clc 
-        txa
-        adc ballY
-        sta ballY
-
-; check if ball bounces
-
-	sec
-        sbc #3
-        bcs skipBounceTop
-        lda #0
-        sta ballDirY
-skipBounceTop        
-        lda #171
-        clc
-        sbc ballY
-        bcs SkipBounceBottom
-        lda #1
-        sta ballDirY
-SkipBounceBottom
 
 ; check collision of ball and player Left
 
+	lda ballDirX
+        beq notCollidedL
 	lda #%01000000	
 	and CXM0FB
-	beq notColiddedL
+	beq notCollidedL
+; collided Left - BOUNCE!       
 	lda #0
         sta ballDirX
+	lda p1y
+	jsr SetYSpeed       
+        
 
-notColiddedL
+notCollidedL
 
 ; check collision of ball and player Right
-
-	lda #%01000000	
+ 
+	lda ballDirX
+        bne notCollidedR
+	lda #%01000000
 	and CXM1FB
-	beq notColiddedR
+	beq notCollidedR
+; collided Right - BOUNCE!
 	lda #1
         sta ballDirX
-notColiddedR
+	lda p2y
+        jsr SetYSpeed  
+        
+notCollidedR
+	
+        lda ballStop
+        beq EndOfFrame
+        dec ballStop
 
-	jmp EndOfFrame
+EndOfFrame
+
+	TIMER_WAIT
+; total = 262 lines, go to next frame
+        jmp NextFrame
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; SUBROUTINES
+
+SetYSpeed ; player in accu
+	ldx #1
+        stx ballDirY
+        clc
+	jsr signChange
+        adc #158
+        sec
+        sbc ballY
+        bpl skipS
+        jsr signChange
+        tax
+      	lda #0
+	sta ballDirY
+	txa
+skipS   
+	asl
+        sta ballSy
+      	jsr bounceSound
+	rts
 
 ; someone failed 
 playerAFails
@@ -360,14 +438,14 @@ playerAFails
         sta ballDirX
         beq p1fails
 ;p0 fails        
-	ldx #160
+	ldx #164
         lda p2y
    	inc score1   
 	bcc skipp1        
 	   
 p1fails
 ;p1
-	ldx #28
+	ldx #24
 	lda p1y
 	inc score0
 
@@ -385,15 +463,20 @@ skipp1
         rol
         and #1
         sta ballDirY
+        lda #20
+        sta ballStop
+        lda #31
+        sta AUDF1
+        lda #15
+        sta v1
+	rts
 
-EndOfFrame
-
-	TIMER_WAIT
-; total = 262 lines, go to next frame
-        jmp NextFrame
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; SUBROUTINES
+bounceSound
+        lda #20
+        sta AUDF0
+        lda #12
+        sta v0
+	rts
 
 signChange
         eor #$ff
@@ -403,7 +486,7 @@ signChange
 
 ; SetHorizPos routine
 ; A = X coordinate
-; X = player number (0 or 1)
+; X = sprite number 
 SetHorizPos
 	sta WSYNC	; start a new line
 	sec		; set carry flag
