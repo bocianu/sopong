@@ -82,6 +82,8 @@ NextFrame
         bne skipTitle
      	
 ; Set playfield foreground and background
+	lda #%00100000
+        sta CTRLPF        
         lda #$00
         sta COLUBK
         lda b
