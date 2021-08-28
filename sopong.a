@@ -19,9 +19,6 @@ ballDirX	.byte ; ball horizontal direction  0 right / 1 left
 ballDirY	.byte ; ball vertical direction	   0 down / 1 up
 p1y		.byte ; paddles vert pos
 p2y		.byte
-sball		.byte ; ball shadow register
-sp1		.byte ; paddle shadow registers
-sp2		.byte 
 pl1p		.word ; pointers to player graphics data tables
 pl2p		.word
 score0		.byte ; scores
@@ -31,12 +28,16 @@ bounceCount	.byte
 ballStop 	.byte
 v0		.byte
 v1		.byte
-
+scoreData0	.word
+scoreData1	.word
+gameOver	.byte
+gameState	.byte ; 0 - title; 1-ingame; 2-endscreen;
+b		.byte
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Consts
 
 RAND_EOR_8 = $A9
-
+STARTING_X_SPEED = 16
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Code segment
@@ -49,37 +50,21 @@ Start
 
 ; initialize variables        
 	lda #$0a
-	sta COLUPF
         sta COLUP0
         sta COLUP1
-        lda #%00100001
-        sta CTRLPF
-        lda #%00100000
+        lda #%00100111
         sta NUSIZ0
         sta NUSIZ1
-        lda #90
-        sta ballX
-        sta ballY
-	lda #72
-        sta p1y
-        sta p2y
-        sta ballDx
-        sta ballDy
-        sta ballDirX
-        sta ballDirY
-	lda #20
-        sta ballSx
-	lda #20
-        sta ballSy
-        lda #0
-        sta bounceCount
-	sta ballStop
-        sta AUDV0
-        sta AUDV1
         lda #5
         sta AUDC0
         lda #7
         sta AUDC1
+	lda #0 
+        sta gameState
+
+        
+carry
+        
 ; start of frame
 
 NextFrame
@@ -89,8 +74,113 @@ NextFrame
 	VERTICAL_SYNC
 ; 37 lines of underscan
 	TIMER_SETUP 37
-        
+
+;randomize
+	jsr rand
+
+	lda gameState
+        bne skipTitle
+     	
+; Set playfield foreground and background
+        lda #$00
+        sta COLUBK
+        lda b
+        asl
+        asl
+        and #%11110000
+	ora #%00000110 
+	sta COLUPF
+        inc b
+        sta WSYNC
+        TIMER_WAIT
+
+        lda #0
+        sta VBLANK
+
+
+    	ldy #35
+TopLoop
+        sta WSYNC
+        dey 
+        bne TopLoop	; repeat until all scanlines drawn
+
+
+        ldy #122
+ScanLoop
+; WSYNC and store playfield registers
+        sta WSYNC
+        lda PFBitmap0,y
+        sta PF0		; store first playfield byte
+        lda PFBitmap1,y
+        sta PF1		; store 2nd byte
+        lda PFBitmap2,y
+        sta PF2		; store 3rd byte
+; Here's the asymmetric part -- by this time the TIA clock
+; is far enough that we can rewrite the same PF registers
+; and display new data on the right side of the screen
+        nop
+        nop
+        nop		; pause to let playfield finish drawing
+        lda PFBitmap3,y
+        sta PF0		; store 4th byte
+        lda PFBitmap4,y
+        sta PF1		; store 5th byte
+        lda PFBitmap5,y
+        sta PF2		; store 6th byte
+
+	dey 
+        bne ScanLoop	; repeat until all scanlines drawn
+; Reset playfield
+        SLEEP 14	; give time to finish drawing scanline
+	lda #0
+        sta PF0
+        sta PF1
+        sta PF2		; clear playfield
+
+    	ldy #35
+bottomLoop
+        sta WSYNC
+        dey 
+        bne bottomLoop	; repeat until all scanlines drawn
+
+        TIMER_SETUP 28
+
+	;; title body here
+
+	bit INPT4	; read button
+        bmi NoFireButton ; bit 7 set?
+        jsr InitGame
+        inc gameState
+NoFireButton        
+
+	lda #2
+        sta VBLANK
+
+
+	jmp EndOfFrame
+
+
+skipTitle
+
+	cmp #2
+        bne skipFireCheck
+	bit INPT4	; read button
+        bmi NoFireButton2 ; bit 7 set?
+        lda #0
+        sta gameState
+        bit INPT4	; read button
+        bpl *-2 ; bit 7 set?
+NoFireButton2        
+	
+
+skipFireCheck
+
 ; set playfield top line
+        
+        lda #%00100001
+        sta CTRLPF
+        lda #$08
+	sta COLUPF
         
         lda #$ff
         sta PF2
@@ -98,11 +188,7 @@ NextFrame
         sta PF0
         sta CXCLR
 
-; set ball and players positions
-
-        lda ballX	
-        ldx #4		; ball
-        jsr SetHorizPos	
+; set players positions
         
         lda #20
         ldx #2		; missile 0
@@ -112,6 +198,67 @@ NextFrame
         ldx #3		; missile 1
         jsr SetHorizPos	
 
+	lda score0
+        asl
+        tax
+	lda .scorePtr,x
+	sta scoreData0
+	lda .scorePtr+1,x
+        sta scoreData0 + 1
+
+        lda #52
+        ldx #0		; player 0
+        jsr SetHorizPos	
+
+	lda score1
+        asl
+        tax
+	lda .scorePtr,x
+	sta scoreData1
+	lda .scorePtr+1,x
+        sta scoreData1 + 1
+
+	lda #0
+	ldx score1
+        cpx #10
+        bmi skipDecimal
+        lda #8
+skipDecimal
+       	clc
+        adc #84
+        ldx #1		; player 1
+        jsr SetHorizPos	
+
+
+; calculate player1 top offset pointer
+        
+        lda #>.pldata
+        sta pl1p + 1
+        clc
+	lda #<.pldata
+        adc p1y
+	sta pl1p
+        bcc carry1
+        inc pl1p + 1
+carry1        
+
+; calculate player2 top offset pointer
+
+	lda #>.pldata
+        sta pl2p + 1
+        clc
+	lda #<.pldata
+        adc p2y
+	sta pl2p
+        bcc carry2
+        inc pl2p + 1
+carry2        
+
+	lda gameOver
+        beq s1
+        jmp SkipOutRight
+s1        
+        
 ; check player 1 joy
 
 	ldx p1y
@@ -154,33 +301,9 @@ SkipMoveUp2
 SkipMoveDown2
 	stx p2y        
 
-; calculate player1 top offset pointer
-        
-        lda #>.pldata
-        sta pl1p + 1
-        clc
-	lda #<.pldata
-        adc p1y
-	sta pl1p
-        bcc carry1
-        inc pl1p + 1
-carry1        
 
-; calculate player2 top offset pointer
-
-	lda #>.pldata
-        sta pl2p + 1
-        clc
-	lda #<.pldata
-        adc p2y
-	sta pl2p
-        bcc carry2
-        inc pl2p + 1
-carry2        
 
 ; randomize 
-
-	jsr rand
 
 	lda ballStop
         bne SkipOutRight
@@ -258,7 +381,7 @@ singSkip
 ; check if ball leaves screen        
 
 	sec
-        sbc #18
+        sbc #17
         bcs skipOutLeft
         lda #0
         jsr playerAFails
@@ -274,6 +397,11 @@ SkipOutRight
 
         
 ; and set sprites horizontal positions    
+
+
+        lda ballX	
+        ldx #4		; ball
+        jsr SetHorizPos	
         
 	sta WSYNC	
         sta HMOVE	
@@ -291,39 +419,29 @@ SkipOutRight
         stx PF1
         stx PF2
         
-; 176 lines of playfield -------------- LOOP START
+; 176 lines of playfield 
 
 	ldy #176	
         
-LVScan
+LVScan		;;;;;;;;;    -------------- LOOP START
 	
 ; draw ball if needed        
         ldx #1
         
-        lda ballStop
-        bne InSprite
 	tya
-        sec		
         sbc ballY	
         cmp #8         
         bcs InSprite	
 	inx	
 InSprite
-        stx sball	
-    	
-; draw paddle using bytes offsets
-	
-	lda (pl2p),y
-        sta sp2
-	lda (pl1p),y
-        sta sp1		
+      
 
 ; fill sprite registers
-	ldx sball
+	lda (pl1p),y
  	sta WSYNC
         stx ENABL
         sta ENAM0
-	lda sp2       
+	lda (pl2p),y
 	sta ENAM1
 
 ; draw playfield v-line 
@@ -333,11 +451,20 @@ InSprite
         lda #128
 skipFill        
 	sta PF2               
-       
+
+       	cpy #126
+        bmi afterScore
+	lda (scoreData0),y
+        sta GRP0
+        lda (scoreData1),y
+        sta GRP1
+
+afterScore
+
         dey		
         bne LVScan	
         
-; 176 lines of playfield -------------- LOOP END        
+; 176 lines of playfield      -------------- LOOP END        
         
 ; draw bottom line       
         
@@ -367,6 +494,8 @@ skipV0down
         dec v1
 skipV1down
 
+	lda ballStop
+	bne notCollidedR
 
 ; check collision of ball and player Left
 
@@ -375,7 +504,7 @@ skipV1down
 	lda #%01000000	
 	and CXM0FB
 	beq notCollidedL
-; collided Left - BOUNCE!       
+; collided Left - BOUNCE!      | ------------------------>
 	lda #0
         sta ballDirX
 	lda p1y
@@ -391,7 +520,7 @@ notCollidedL
 	lda #%01000000
 	and CXM1FB
 	beq notCollidedR
-; collided Right - BOUNCE!
+; collided Right - BOUNCE!     <-------------------------- |
 	lda #1
         sta ballDirX
 	lda p2y
@@ -430,6 +559,15 @@ skipS
 	asl
         sta ballSy
       	jsr bounceSound
+        inc bounceCount
+        lda bounceCount
+        lsr
+        lsr
+        lsr
+        clc
+        adc ballSx
+        sta ballSx
+        
 	rts
 
 ; someone failed 
@@ -438,16 +576,23 @@ playerAFails
         sta ballDirX
         beq p1fails
 ;p0 fails        
-	ldx #164
-        lda p2y
+	ldx #162
    	inc score1   
+        lda score1
+        cmp #15
+     	bpl EndGame   
+
+        lda p2y
 	bcc skipp1        
 	   
 p1fails
 ;p1
-	ldx #24
-	lda p1y
+	ldx #26
 	inc score0
+        lda score0
+        cmp #15
+        bpl EndGame   
+	lda p1y
 
 skipp1
 ; restart ball position (winner Y pos in accu)
@@ -469,6 +614,50 @@ skipp1
         sta AUDF1
         lda #15
         sta v1
+        lda #0
+        sta bounceCount
+        lda STARTING_X_SPEED
+        sta ballSx
+	rts
+        
+EndGame
+	lda #1
+        sta gameOver
+        inc gameState
+	rts
+
+InitGame
+        lda #94
+        sta ballX
+        lda #86
+        sta ballY
+	lda #72
+        sta p1y
+        sta p2y
+        sta ballDx
+        sta ballDy
+	lda #STARTING_X_SPEED
+        sta ballSx
+	lda random
+        and #15
+        sta ballSy
+	lda random
+        rol 
+        rol
+        and #1
+	sta ballDirX
+	lda random
+        rol 
+        rol
+        rol
+        and #1        
+        sta ballDirY
+        lda #0
+        sta bounceCount
+	sta ballStop
+        sta gameOver
+        sta score0
+        sta score1
 	rts
 
 bounceSound
@@ -560,7 +749,183 @@ srand
 	hex 0000000000000000
 	hex 0000000000000000
 	hex 000000000000000000
-                                
+
+
+.scoreData
+        hex 0000000000000000
+	hex 0707070707070707
+	hex 0505050505050505
+	hex 0505050505050505
+	hex 0505050505050505
+	hex 0707070707070707
+        hex 0000000000000000
+        hex 0000000000000000
+
+        hex 0000000000000000
+	hex 0101010101010101
+	hex 0101010101010101
+	hex 0101010101010101
+	hex 0101010101010101
+	hex 0101010101010101
+        hex 0000000000000000
+        hex 0000000000000000
+
+        hex 0000000000000000
+	hex 0707070707070707
+	hex 0404040404040404
+	hex 0707070707070707
+	hex 0101010101010101
+	hex 0707070707070707
+        hex 0000000000000000
+        hex 0000000000000000
+
+        hex 0000000000000000
+	hex 0707070707070707
+	hex 0101010101010101
+	hex 0707070707070707
+	hex 0101010101010101
+	hex 0707070707070707
+        hex 0000000000000000
+        hex 0000000000000000
+
+	hex 0000000000000000
+	hex 0101010101010101
+	hex 0101010101010101
+	hex 0707070707070707
+	hex 0505050505050505
+	hex 0505050505050505
+        hex 0000000000000000
+        hex 0000000000000000
+
+        hex 0000000000000000
+	hex 0707070707070707
+	hex 0101010101010101
+	hex 0707070707070707
+	hex 0404040404040404
+	hex 0707070707070707
+        hex 0000000000000000
+        hex 0000000000000000
+
+        hex 0000000000000000
+	hex 0707070707070707
+	hex 0505050505050505
+	hex 0707070707070707
+	hex 0404040404040404
+	hex 0707070707070707
+        hex 0000000000000000
+        hex 0000000000000000
+
+        hex 0000000000000000
+	hex 0101010101010101
+	hex 0101010101010101
+	hex 0101010101010101
+	hex 0101010101010101
+	hex 0707070707070707
+        hex 0000000000000000
+        hex 0000000000000000
+
+        hex 0000000000000000
+	hex 0707070707070707
+	hex 0505050505050505
+	hex 0707070707070707
+	hex 0505050505050505
+	hex 0707070707070707
+        hex 0000000000000000
+        hex 0000000000000000
+
+        hex 0000000000000000
+	hex 0707070707070707
+	hex 0101010101010101
+	hex 0707070707070707
+	hex 0505050505050505
+	hex 0707070707070707
+        hex 0000000000000000
+        hex 0000000000000000
+
+; 10	
+
+        hex 0000000000000000
+	hex 1717171717171717
+	hex 1515151515151515
+	hex 1515151515151515
+	hex 1515151515151515
+	hex 1717171717171717
+        hex 0000000000000000
+        hex 0000000000000000
+
+        hex 0000000000000000
+	hex 1111111111111111
+	hex 1111111111111111
+	hex 1111111111111111
+	hex 1111111111111111
+	hex 1111111111111111
+        hex 0000000000000000
+        hex 0000000000000000
+
+        hex 0000000000000000
+	hex 1717171717171717
+	hex 1414141414141414
+	hex 1717171717171717
+	hex 1111111111111111
+	hex 1717171717171717
+        hex 0000000000000000
+        hex 0000000000000000
+
+        hex 0000000000000000
+	hex 1717171717171717
+	hex 1111111111111111
+	hex 1717171717171717
+	hex 1111111111111111
+	hex 1717171717171717
+        hex 0000000000000000
+        hex 0000000000000000
+
+	hex 0000000000000000
+	hex 1111111111111111
+	hex 1111111111111111
+	hex 1717171717171717
+	hex 1515151515151515
+	hex 1515151515151515
+        hex 0000000000000000
+        hex 0000000000000000
+
+        hex 0000000000000000
+	hex 1717171717171717
+	hex 1111111111111111
+	hex 1717171717171717
+	hex 1414141414141414
+	hex 1717171717171717
+        hex 0000000000000000
+        hex 0000000000000000
+
+
+.scorePtr
+	.word .scoreData - 120 + (0 * 64)
+	.word .scoreData - 120 + (1 * 64)
+	.word .scoreData - 120 + (2 * 64)
+	.word .scoreData - 120 + (3 * 64)
+	.word .scoreData - 120 + (4 * 64)
+	.word .scoreData - 120 + (5 * 64)
+	.word .scoreData - 120 + (6 * 64)
+	.word .scoreData - 120 + (7 * 64)
+	.word .scoreData - 120 + (8 * 64)
+	.word .scoreData - 120 + (9 * 64)
+	.word .scoreData - 120 + (10 * 64)
+	.word .scoreData - 120 + (11 * 64)
+	.word .scoreData - 120 + (12 * 64)
+	.word .scoreData - 120 + (13 * 64)
+	.word .scoreData - 120 + (14 * 64)
+	.word .scoreData - 120 + (15 * 64)
+	.word .scoreData - 120 - 64
+
+
+PFBitmap0 equ .+192*0 + 62
+PFBitmap1 equ .+192*1 + 62
+PFBitmap2 equ .+192*2 + 62
+PFBitmap3 equ .+192*3 + 62
+PFBitmap4 equ .+192*4 + 62
+PFBitmap5 equ .+192*5 + 62
+    incbin "title-vcs.bin"
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; Epilogue
